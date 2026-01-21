@@ -11,6 +11,7 @@ git@github.com:erges699/bad-server.git
 ```bash
 docker compose up -d
 ```
+
 3. Наполнить базу данных
 [README.md](.dump%2FREADME.md)
 4. Перейти по адресу http://localhost/ и на странице должны быть продукты.
