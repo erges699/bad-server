@@ -1,5 +1,5 @@
 # Проектная работа "WebLarek. Плохой сервер.", спринт 17
-git@github.com:erges699/bad-server.git
+https://github.com/erges699/bad-server
 Сергей Баляба
 Кагорта: 37
 Курс: Фулстек-разработчик расширенный
