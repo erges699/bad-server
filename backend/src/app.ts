@@ -1,43 +1,76 @@
-import { errors } from 'celebrate'
-import cookieParser from 'cookie-parser'
-import cors from 'cors'
-import 'dotenv/config'
-import express, { json, urlencoded } from 'express'
-import mongoose from 'mongoose'
-import path from 'path'
-import { DB_ADDRESS } from './config'
-import errorHandler from './middlewares/error-handler'
-import serveStatic from './middlewares/serverStatic'
-import routes from './routes'
+import { errors } from 'celebrate';
+import cookieParser from 'cookie-parser';
+import cors from 'cors';
+import 'dotenv/config';
+import express, { json, urlencoded } from 'express';
+import mongoose from 'mongoose';
+import path from 'path';
+import helmet from 'helmet';
+import rateLimit from 'express-rate-limit';
+import csurf from 'csurf';
 
-const { PORT = 3000 } = process.env
-const app = express()
+import { DB_ADDRESS } from './config';
+import errorHandler from './middlewares/error-handler';
+import serveStatic from './middlewares/serverStatic';
+import routes from './routes';
 
-app.use(cookieParser())
+const { PORT = 3000 } = process.env;
+const app = express();
 
-app.use(cors())
-// app.use(cors({ origin: ORIGIN_ALLOW, credentials: true }));
-// app.use(express.static(path.join(__dirname, 'public')));
 
-app.use(serveStatic(path.join(__dirname, 'public')))
+app.use(helmet());
 
-app.use(urlencoded({ extended: true }))
-app.use(json())
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 100,
+  message: 'Too many requests, please try again later.',
+});
+app.use(limiter);
 
-app.options('*', cors())
-app.use(routes)
-app.use(errors())
-app.use(errorHandler)
 
-// eslint-disable-next-line no-console
+const csrfProtection = csurf({ cookie: true });
+app.use('/admin', csrfProtection);
+
+
+const CORS_OPTIONS = {
+  origin: process.env.CORS_ORIGIN || 'https://your-frontend.com',
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE'],
+};
+app.use(cors(CORS_OPTIONS));
+app.options('*', cors(CORS_OPTIONS));
+
+
+app.use(json({ limit: '10mb' }));
+app.use(urlencoded({ extended: true, limit: '10mb' }));
+
+app.use(cookieParser());
+
+const PUBLIC_DIR = path.join(__dirname, 'public');
+app.use('/static', serveStatic(PUBLIC_DIR, {
+  index: false,
+  maxAge: '1d',
+  setHeaders: (res, filePath) => {
+    if (filePath.includes('private')) {
+      res.setHeader('Cache-Control', 'no-store');
+    }
+  },
+}));
+
+app.use(errors());
+
+app.use(routes);
+app.use(errorHandler);
+
 
 const bootstrap = async () => {
-    try {
-        await mongoose.connect(DB_ADDRESS)
-        await app.listen(PORT, () => console.log('ok'))
-    } catch (error) {
-        console.error(error)
-    }
-}
+  try {
+    await mongoose.connect(DB_ADDRESS);
+    await app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+  } catch (error) {
+    console.error('Startup error:', error);
+    process.exit(1);
+  }
+};
 
-bootstrap()
+bootstrap();
