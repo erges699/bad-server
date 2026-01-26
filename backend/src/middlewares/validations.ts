@@ -8,6 +8,34 @@ export enum PaymentType {
   Card = 'card',
   Online = 'online',
 }
+/**
+ * Проверяет валидность MongoDB ObjectId
+ * @param id - строка ID
+ * @returns Date | null - валидная дата или null
+ */
+export const isValidObjectId = (id: string): boolean => {
+  return Types.ObjectId.isValid(id);
+};
+
+/**
+ * Проверяет и преобразует строку в валидную дату
+ * @param dateStr - строка даты
+ * @returns Date | null - валидная дата или null
+ */
+export const isValidDate = (dateStr: string): Date | null => {
+  const date = new Date(dateStr);
+  return isNaN(date.getTime()) ? null : date;
+};
+
+/**
+ * Санитирует строку для безопасного использования в RegExp
+ * (экранирует спецсимволы)
+ * @param str - исходная строка
+ * @returns string - очищенная строка
+ */
+export const sanitizeString = (str: string): string => {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+};
 
 export const validateOrderBody = celebrate({
   body: Joi.object().keys({
