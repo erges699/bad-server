@@ -53,3 +53,5 @@ weblarek> db.products.countDocuments()
 weblarek> db.users.countDocuments()
 weblarek> db.users.find().limit(5)
 weblarek> db.products.find().limit(5)
+
+
