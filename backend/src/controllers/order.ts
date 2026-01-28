@@ -13,6 +13,11 @@ export const getOrders = async (
   next: NextFunction
 ) => {
   try {
+    // Проверка роли (только для админов)
+    if (res.locals.user.role !== 'admin') {
+      return next(new ForbiddenError('Доступ только для админов'));
+    }
+
     const {
       page = 1,
       limit = 10,
@@ -26,32 +31,31 @@ export const getOrders = async (
       search,
     } = req.query;
 
-    // Валидация числовых параметров
+    // Валидация и ограничение limit
     const pageNum = parseInt(page as string, 10);
-    const limitNum = parseInt(limit as string, 10);
-    if (Number.isNaN(pageNum) || Number.isNaN(limitNum) || pageNum < 1 || limitNum < 1) {
+    const limitNum = Math.min(parseInt(limit as string, 10), 10); // Максимум 10
+    if (Number.isNaN(pageNum) || pageNum < 1 || limitNum < 1) {
       return next(new BadRequestError('Некорректные параметры page или limit'));
     }
 
     const filters: FilterQuery<Partial<IOrder>> = {};
 
-    if (status) {
-      if (typeof status === 'object') {
-        Object.assign(filters, status);
-      } else if (typeof status === 'string') {
-        filters.status = status; // Уже строка, не требует экранирования для MongoDB
+    // Безопасная обработка status (только строковые значения)
+    if (status && typeof status === 'string') {
+      const validStatuses = ['pending', 'completed', 'cancelled']; // Список разрешённых статусов
+      if (!validStatuses.includes(status)) {
+        return next(new BadRequestError(`Недопустимый статус: ${status}`));
       }
+      filters.status = status;
     }
 
+    // Обработка числовых фильтров
     if (totalAmountFrom) {
       const amount = parseFloat(totalAmountFrom as string);
       if (Number.isNaN(amount) || amount < 0) {
         return next(new BadRequestError('totalAmountFrom должен быть положительным числом'));
       }
-      filters.totalAmount = {
-        ...filters.totalAmount,
-        $gte: amount,
-      };
+      filters.totalAmount = { ...filters.totalAmount, $gte: amount };
     }
 
     if (totalAmountTo) {
@@ -59,21 +63,16 @@ export const getOrders = async (
       if (Number.isNaN(amount) || amount < 0) {
         return next(new BadRequestError('totalAmountTo должен быть положительным числом'));
       }
-      filters.totalAmount = {
-        ...filters.totalAmount,
-        $lte: amount,
-      };
+      filters.totalAmount = { ...filters.totalAmount, $lte: amount };
     }
 
+    // Обработка дат
     if (orderDateFrom) {
       const date = new Date(orderDateFrom as string);
       if (Number.isNaN(date.getTime())) {
         return next(new BadRequestError('orderDateFrom имеет некорректный формат даты'));
       }
-      filters.createdAt = {
-        ...filters.createdAt,
-        $gte: date,
-      };
+      filters.createdAt = { ...filters.createdAt, $gte: date };
     }
 
     if (orderDateTo) {
@@ -81,10 +80,7 @@ export const getOrders = async (
       if (Number.isNaN(date.getTime())) {
         return next(new BadRequestError('orderDateTo имеет некорректный формат даты'));
       }
-      filters.createdAt = {
-        ...filters.createdAt,
-        $lte: date,
-      };
+      filters.createdAt = { ...filters.createdAt, $lte: date };
     }
 
     const aggregatePipeline: any[] = [
@@ -109,8 +105,9 @@ export const getOrders = async (
       { $unwind: '$products' },
     ];
 
+    // Поиск по продуктам и номеру заказа
     if (search) {
-      const safeSearch = escapeRegExp(search as string); // Экранирование для RegExp
+      const safeSearch = escapeRegExp(search as string);
       const searchRegex = new RegExp(safeSearch, 'i');
       const searchNumber = parseFloat(search as string);
 
@@ -121,15 +118,12 @@ export const getOrders = async (
       }
 
       aggregatePipeline.push({
-        $match: {
-          $or: searchConditions,
-        },
+        $match: { $or: searchConditions },
       });
-
       filters.$or = searchConditions;
     }
 
-    // Безопасная валидация sortField
+    // Сортировка
     const validSortFields = ['createdAt', 'totalAmount', 'orderNumber'];
     if (!validSortFields.includes(sortField as string)) {
       return next(new BadRequestError(`Поле сортировки ${sortField} не поддерживается`));
@@ -160,98 +154,6 @@ export const getOrders = async (
     const totalPages = Math.ceil(totalOrders / limitNum);
 
     res.status(200).json({
-      orders,
-      pagination: {
-        totalOrders,
-        totalPages,
-        currentPage: pageNum,
-        pageSize: limitNum,
-      },
-    });
-  } catch (error) {
-    next(error);
-  }
-};
-
-
-export const getOrdersCurrentUser = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
-) => {
-  try {
-    const userId = res.locals.user._id;
-    const { search, page = 1, limit = 5 } = req.query;
-
-    // Валидация числовых параметров
-    const pageNum = parseInt(page as string, 10);
-    const limitNum = parseInt(limit as string, 10);
-    if (Number.isNaN(pageNum) || Number.isNaN(limitNum) || pageNum < 1 || limitNum < 1) {
-      return next(new BadRequestError('Некорректные параметры page или limit'));
-    }
-
-    const options = {
-      skip: (pageNum - 1) * limitNum,
-      limit: limitNum,
-    };
-
-    // Получение пользователя с заполненными заказами
-    const user = await User.findById(userId)
-      .populate({
-        path: 'orders',
-        populate: [
-          {
-            path: 'products',
-          },
-          {
-            path: 'customer',
-          },
-        ],
-      })
-      .orFail(
-        () => new NotFoundError('Пользователь по заданному id отсутствует в базе')
-      );
-
-    let orders = user.orders as unknown as IOrder[];
-
-    // Обработка поискового запроса
-    if (search) {
-      const safeSearch = escapeRegExp(search as string);
-      
-      // Создание безопасного регулярного выражения
-      const searchRegex = new RegExp(safeSearch, 'i');
-      
-      const searchNumber = parseFloat(search as string);
-
-      // Поиск продуктов по названию
-      const products = await Product.find({ title: searchRegex });
-      const productIds = products.map((product) => product._id);
-
-      // Фильтрация заказов по критериям поиска
-      orders = orders.filter((order) => {
-        // Проверка совпадения по названию продукта
-        const matchesProductTitle = order.products.some((product) =>
-          productIds.some((id) => id.equals(product._id))
-        );
-        
-        // Проверка совпадения по номеру заказа (если введено число)
-        const matchesOrderNumber =
-          !Number.isNaN(searchNumber) && order.orderNumber === searchNumber;
-
-        return matchesOrderNumber || matchesProductTitle;
-      });
-    }
-
-    // Расчёт пагинации
-    const totalOrders = orders.length;
-    const totalPages = Math.ceil(totalOrders / limitNum);
-
-    // Применение пагинации к результатам
-    orders = orders.slice(options.skip, options.skip + options.limit);
-
-
-    // Возврат результата
-    return res.status(200).json({
       orders,
       pagination: {
         totalOrders,
