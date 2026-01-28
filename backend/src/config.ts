@@ -22,5 +22,5 @@ export const REFRESH_TOKEN = {
         } as CookieOptions,
     },
 }
-export const ORIGIN_ALLOW = ['http://localhost:5173'];
 
+export const { ORIGIN_ALLOW = 'http://localhost:5173' } = process.env
