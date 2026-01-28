@@ -2,6 +2,7 @@ import { NextFunction, Request, Response } from 'express';
 import { FilterQuery, Error as MongooseError, Types } from 'mongoose';
 import BadRequestError from '../errors/bad-request-error';
 import NotFoundError from '../errors/not-found-error';
+import ForbiddenError from '../errors/forbidden-error';
 import Order, { IOrder } from '../models/order';
 import Product, { IProduct } from '../models/product';
 import User from '../models/user';
@@ -154,6 +155,95 @@ export const getOrders = async (
     const totalPages = Math.ceil(totalOrders / limitNum);
 
     res.status(200).json({
+      orders,
+      pagination: {
+        totalOrders,
+        totalPages,
+        currentPage: pageNum,
+        pageSize: limitNum,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getOrdersCurrentUser = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const userId = res.locals.user._id;
+    const { search, page = 1, limit = 5 } = req.query;
+
+    // Валидация и ограничение limit (максимум 10)
+    const pageNum = parseInt(page as string, 10);
+    const limitNum = Math.min(parseInt(limit as string, 10), 10);
+    if (Number.isNaN(pageNum) || Number.isNaN(limitNum) || pageNum < 1 || limitNum < 1) {
+      return next(new BadRequestError('Некорректные параметры page или limit'));
+    }
+
+    const options = {
+      skip: (pageNum - 1) * limitNum,
+      limit: limitNum,
+    };
+
+    // Получение пользователя с заполненными заказами
+    const user = await User.findById(userId)
+      .populate({
+        path: 'orders',
+        populate: [
+          {
+            path: 'products',
+          },
+          {
+            path: 'customer',
+          },
+        ],
+      })
+      .orFail(
+        () => new NotFoundError('Пользователь по заданному id отсутствует в базе')
+      );
+
+    let orders = user.orders as unknown as IOrder[];
+
+    // Обработка поискового запроса
+    if (search) {
+      const safeSearch = escapeRegExp(search as string);
+      const searchRegex = new RegExp(safeSearch, 'i');
+      const searchNumber = parseFloat(search as string);
+
+      // Поиск продуктов по названию (с экранированием спецсимволов)
+      const products = await Product.find({ title: searchRegex });
+      const productIds = products.map((product) => product._id);
+
+      // Фильтрация заказов по критериям поиска
+      orders = orders.filter((order) => {
+        // Проверка совпадения по названию продукта
+        const matchesProductTitle = order.products.some((product) =>
+          productIds.some((id) => id.equals(product._id))
+        );
+
+        // Проверка совпадения по номеру заказа (если введено число)
+        const matchesOrderNumber =
+          !Number.isNaN(searchNumber) && order.orderNumber === searchNumber;
+
+        return matchesOrderNumber || matchesProductTitle;
+      });
+    }
+
+    // Расчёт пагинации
+    const totalOrders = orders.length;
+    const totalPages = Math.ceil(totalOrders / limitNum);
+
+
+    // Применение пагинации к результатам
+    orders = orders.slice(options.skip, options.skip + options.limit);
+
+
+    // Возврат результата
+    return res.status(200).json({
       orders,
       pagination: {
         totalOrders,
