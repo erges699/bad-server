@@ -1,5 +1,7 @@
+// backend/src/controllers/order.ts
 import { NextFunction, Request, Response } from 'express';
 import { FilterQuery, Error as MongooseError, Types } from 'mongoose';
+import sanitizeHtml from 'sanitize-html';
 import BadRequestError from '../errors/bad-request-error';
 import NotFoundError from '../errors/not-found-error';
 import ForbiddenError from '../errors/forbidden-error';
@@ -32,10 +34,16 @@ export const getOrders = async (
       search,
     } = req.query;
 
-    // Валидация и ограничение limit
+    // Валидация и нормализация limit: максимум 10
+    let limitNum = parseInt(limit as string, 10);
+    if (Number.isNaN(limitNum) || limitNum < 1) {
+      return next(new BadRequestError('Некорректные параметры page или limit'));
+    }
+    limitNum = Math.min(limitNum, 10); // Нормализация: не более 10 записей
+
+    // Валидация page
     const pageNum = parseInt(page as string, 10);
-    const limitNum = Math.min(parseInt(limit as string, 10), 10); // Максимум 10
-    if (Number.isNaN(pageNum) || pageNum < 1 || limitNum < 1) {
+    if (Number.isNaN(pageNum) || pageNum < 1) {
       return next(new BadRequestError('Некорректные параметры page или limit'));
     }
 
@@ -108,11 +116,18 @@ export const getOrders = async (
 
     // Поиск по продуктам и номеру заказа
     if (search) {
-      const safeSearch = escapeRegExp(search as string);
-      const searchRegex = new RegExp(safeSearch, 'i');
-      const searchNumber = parseFloat(search as string);
+      const searchStr = search as string;
 
-      const searchConditions: any[] = [{ 'products.title': searchRegex }];
+      // Блокируем потенциально опасные шаблоны
+      if (/[*+?^${}[(]|\\/.test(searchStr)) {
+        return next(new BadRequestError('Недопустимые символы в поиске'));
+      }
+
+      const safeSearch = escapeRegExp(searchStr);
+      const searchRegex = new RegExp(safeSearch, 'i');
+      const searchNumber = parseFloat(searchStr);
+
+      const searchConditions: any[] = [{ 'products.title': { $regex: searchRegex } }];
 
       if (!Number.isNaN(searchNumber)) {
         searchConditions.push({ orderNumber: searchNumber });
@@ -121,8 +136,9 @@ export const getOrders = async (
       aggregatePipeline.push({
         $match: { $or: searchConditions },
       });
-      filters.$or = searchConditions;
     }
+
+
 
     // Сортировка
     const validSortFields = ['createdAt', 'totalAmount', 'orderNumber'];
@@ -179,10 +195,11 @@ export const getOrdersCurrentUser = async (
 
     // Валидация и ограничение limit (максимум 10)
     const pageNum = parseInt(page as string, 10);
-    const limitNum = Math.min(parseInt(limit as string, 10), 10);
-    if (Number.isNaN(pageNum) || Number.isNaN(limitNum) || pageNum < 1 || limitNum < 1) {
+    let limitNum = parseInt(limit as string, 10);
+    if (Number.isNaN(pageNum) || pageNum < 1 || limitNum < 1) {
       return next(new BadRequestError('Некорректные параметры page или limit'));
     }
+    limitNum = Math.min(limitNum, 10);
 
     const options = {
       skip: (pageNum - 1) * limitNum,
@@ -264,6 +281,10 @@ export const getOrderByNumber = async (
     next: NextFunction
 ) => {
     try {
+        const {orderNumber} = req.params;
+        if (typeof orderNumber !== 'string' || !/^\d+$/.test(orderNumber)) {
+          return next(new BadRequestError('orderNumber должен быть числом'));
+        }      
         const order = await Order.findOne({
             orderNumber: req.params.orderNumber,
         })
@@ -290,6 +311,11 @@ export const getOrderCurrentUserByNumber = async (
 ) => {
     const userId = res.locals.user._id
     try {
+        const {orderNumber} = req.params;
+        if (typeof orderNumber !== 'string' || !/^\d+$/.test(orderNumber)) {
+          return next(new BadRequestError('orderNumber должен быть числом'));
+        }
+
         const order = await Order.findOne({
             orderNumber: req.params.orderNumber,
         })
@@ -342,6 +368,20 @@ export const createOrder = async (
         if (totalBasket !== total) {
             return next(new BadRequestError('Неверная сумма заказа'))
         }
+        // Санитация комментария
+        const sanitizedComment = sanitizeHtml(
+          comment,
+          {
+            allowedTags: [],           // Запретить ВСЕ HTML‑теги
+            allowedAttributes: {},     // Запретить ВСЕ атрибуты
+            textFilter: (text) => text.trim(), // Убрать лишние пробелы
+          }
+        );
+
+        // Если после санирования строка пуста — можно отклонить
+        if (!sanitizedComment) {
+          return next(new BadRequestError('Комментарий содержит недопустимые символы'));
+        }
 
         const newOrder = new Order({
             totalAmount: total,
@@ -349,7 +389,7 @@ export const createOrder = async (
             payment,
             phone,
             email,
-            comment,
+            comment: sanitizedComment,
             customer: userId,
             deliveryAddress: address,
         })
