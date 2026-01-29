@@ -1,74 +1,101 @@
 import { Joi, celebrate } from 'celebrate';
 import { Types } from 'mongoose';
-import sanitizeHtml from 'sanitize-html'; // Добавлена зависимость для санитации HTML
+import sanitizeHtml from 'sanitize-html';
 
-// eslint-disable-next-line no-useless-escape
-export const phoneRegExp = /^(\+\d+)?(?:\s|-?|\(?\d+\)?)+$/;
+// Регулярное выражение для телефона (упрощённое, но безопасное)
+export const phoneRegExp = /^[+\d\s\-()]{6,20}$/;
 
 export enum PaymentType {
   Card = 'card',
   Online = 'online',
 }
 
-// Валидация тела заказа с устранением уязвимостей
+// Валидация телефона (отдельный кастомный валидатор)
+const validatePhone = (value: string, helpers: Joi.CustomHelpers) => {
+  // Проверка формата
+  if (!phoneRegExp.test(value)) {
+    return helpers.message({ custom: 'Некорректный формат телефона' });
+  }
+
+  // Очищаем от нецифровых символов (кроме +)
+  const digits = value.replace(/[^\d+]/g, '');
+  
+  if (digits.length < 6) {
+    return helpers.message({ custom: 'Номер должен содержать минимум 6 цифр' });
+  }
+  if (digits.length > 15) {
+    return helpers.message({ custom: 'Номер не может содержать более 15 цифр' });
+  }
+
+  return value;
+};
+
+// Санирование комментария (отдельный валидатор)
+const sanitizeComment = (value: string, helpers: Joi.CustomHelpers) => {
+  try {
+    const sanitized = sanitizeHtml(value || '', {
+      allowedTags: [],
+      allowedAttributes: {},
+    });
+    return sanitized;
+  } catch (err) {
+    return helpers.message({ custom: 'Ошибка при санитации комментария' });
+  }
+};
+
+// Валидация тела заказа
 export const validateOrderBody = celebrate({
   body: Joi.object().keys({
     items: Joi.array()
       .items(
         Joi.string().custom((value, helpers) => {
-          if (Types.ObjectId.isValid(value)) {
-            return value;
-          }
+          if (Types.ObjectId.isValid(value)) return value;
           return helpers.message({ custom: 'Невалидный id' });
         })
       )
+      .min(1)
       .messages({
         'array.empty': 'Не указаны товары',
+        'array.min': 'Необходимо выбрать хотя бы один товар',
       }),
     payment: Joi.string()
       .valid(...Object.values(PaymentType))
       .required()
       .messages({
         'string.valid':
-          'Указано не валидное значение для способа оплаты, возможные значения - "card", "online"',
+          'Указано невалидное значение для способа оплаты. Возможные значения: "card", "online"',
         'string.empty': 'Не указан способ оплаты',
       }),
     email: Joi.string().email().required().messages({
       'string.empty': 'Не указан email',
+      'string.email': 'Некорректный email',
     }),
     phone: Joi.string()
       .required()
-      .pattern(phoneRegExp)
-      .min(6)  // Добавлено: минимальная длина
-      .max(20) // Добавлено: максимальная длина
+      .custom(validatePhone)
       .messages({
         'string.empty': 'Не указан телефон',
-        'string.min': 'Телефон должен быть не короче 6 символов',
-        'string.max': 'Телефон должен быть не длиннее 20 символов',
+        'any.custom': '#{error.message}',
       }),
     address: Joi.string().required().messages({
       'string.empty': 'Не указан адрес',
     }),
-    total: Joi.number().required().messages({
+    total: Joi.number().required().positive().messages({
       'string.empty': 'Не указана сумма заказа',
+      'number.base': 'Сумма заказа должна быть числом',
+      'number.positive': 'Сумма заказа должна быть положительной',
     }),
     comment: Joi.string()
       .optional()
       .allow('')
-      .custom((value) => 
-        // Добавлено: санитация HTML в комментарии
-         sanitizeHtml(value || '', {
-          allowedTags: [],       // Запретить все HTML-теги
-          allowedAttributes: {}, // Запретить все атрибуты
-        })
-      )
+      .custom(sanitizeComment)
       .messages({
         'string.base': 'Комментарий должен быть строкой',
+        'any.custom': '#{error.message}',
       }),
   }),
 });
 
-// Валидация товара (остаётся без изменений, т.к. не содержит уязвимостей)
 export const validateProductBody = celebrate({
   body: Joi.object().keys({
     title: Joi.string().required().min(2).max(30).messages({

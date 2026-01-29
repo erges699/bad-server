@@ -1,7 +1,6 @@
 // backend/src/controllers/order.ts
 import { NextFunction, Request, Response } from 'express';
-import { FilterQuery, Error as MongooseError, Types } from 'mongoose';
-import sanitizeHtml from 'sanitize-html';
+import { FilterQuery, Error as MongooseError} from 'mongoose';
 import BadRequestError from '../errors/bad-request-error';
 import NotFoundError from '../errors/not-found-error';
 import ForbiddenError from '../errors/forbidden-error';
@@ -9,6 +8,7 @@ import Order, { IOrder } from '../models/order';
 import Product, { IProduct } from '../models/product';
 import User from '../models/user';
 import escapeRegExp from '../utils/escapeRegExp';
+import { normalizeLimit, normalizePage } from '../utils/normalization'
 
 export const getOrders = async (
   req: Request,
@@ -34,17 +34,15 @@ export const getOrders = async (
       search,
     } = req.query;
 
-    // Валидация и нормализация limit: максимум 10
-    let limitNum = parseInt(limit as string, 10);
-    if (Number.isNaN(limitNum) || limitNum < 1) {
-      return next(new BadRequestError('Некорректные параметры page или limit'));
-    }
-    limitNum = Math.min(limitNum, 10); // Нормализация: не более 10 записей
+    // Нормализация page и limit
+    let pageNum: number;
+    let limitNum: number;
 
-    // Валидация page
-    const pageNum = parseInt(page as string, 10);
-    if (Number.isNaN(pageNum) || pageNum < 1) {
-      return next(new BadRequestError('Некорректные параметры page или limit'));
+    try {
+      pageNum = normalizePage(page);
+      limitNum = normalizeLimit(limit, 10);
+    } catch (err) {
+      return next(err);
     }
 
     const filters: FilterQuery<Partial<IOrder>> = {};
@@ -191,15 +189,18 @@ export const getOrdersCurrentUser = async (
 ) => {
   try {
     const userId = res.locals.user._id;
+
     const { search, page = 1, limit = 5 } = req.query;
 
-    // Валидация и ограничение limit (максимум 10)
-    const pageNum = parseInt(page as string, 10);
-    let limitNum = parseInt(limit as string, 10);
-    if (Number.isNaN(pageNum) || pageNum < 1 || limitNum < 1) {
-      return next(new BadRequestError('Некорректные параметры page или limit'));
+    let pageNum: number;
+    let limitNum: number;
+
+    try {
+      pageNum = normalizePage(page);
+      limitNum = normalizeLimit(limit, 10);
+    } catch (err) {
+      return next(err);
     }
-    limitNum = Math.min(limitNum, 10);
 
     const options = {
       skip: (pageNum - 1) * limitNum,
@@ -343,67 +344,45 @@ export const getOrderCurrentUserByNumber = async (
 
 // POST /product
 export const createOrder = async (
-    req: Request,
-    res: Response,
-    next: NextFunction
+  req: Request,
+  res: Response,
+  next: NextFunction
 ) => {
-    try {
-        const basket: IProduct[] = []
-        const products = await Product.find<IProduct>({})
-        const userId = res.locals.user._id
-        const { address, payment, phone, total, email, items, comment } =
-            req.body
+  try {
+    // Валидация выполняется middleware, поэтому здесь только бизнес-логика
+    const { address, payment, phone, total, email, items, comment } = req.body;
 
-        items.forEach((id: Types.ObjectId) => {
-            const product = products.find((p) => p._id.equals(id))
-            if (!product) {
-                throw new BadRequestError(`Товар с id ${id} не найден`)
-            }
-            if (product.price === null) {
-                throw new BadRequestError(`Товар с id ${id} не продается`)
-            }
-            return basket.push(product)
-        })
-        const totalBasket = basket.reduce((a, c) => a + c.price, 0)
-        if (totalBasket !== total) {
-            return next(new BadRequestError('Неверная сумма заказа'))
-        }
-        // Санитация комментария
-        const sanitizedComment = sanitizeHtml(
-          comment,
-          {
-            allowedTags: [],           // Запретить ВСЕ HTML‑теги
-            allowedAttributes: {},     // Запретить ВСЕ атрибуты
-            textFilter: (text) => text.trim(), // Убрать лишние пробелы
-          }
-        );
-
-        // Если после санирования строка пуста — можно отклонить
-        if (!sanitizedComment) {
-          return next(new BadRequestError('Комментарий содержит недопустимые символы'));
-        }
-
-        const newOrder = new Order({
-            totalAmount: total,
-            products: items,
-            payment,
-            phone,
-            email,
-            comment: sanitizedComment,
-            customer: userId,
-            deliveryAddress: address,
-        })
-        const populateOrder = await newOrder.populate(['customer', 'products'])
-        await populateOrder.save()
-
-        return res.status(200).json(populateOrder)
-    } catch (error) {
-        if (error instanceof MongooseError.ValidationError) {
-            return next(new BadRequestError(error.message))
-        }
-        return next(error)
+    // Проверка наличия товаров
+    const products = await Product.find<IProduct>({ _id: { $in: items } });
+    if (products.length !== items.length) {
+      return next(new BadRequestError('Некоторые товары не найдены'));
     }
-}
+
+    // Расчёт суммы
+    const totalBasket = products.reduce((acc, p) => acc + p.price, 0);
+    if (totalBasket !== total) {
+      return next(new BadRequestError('Неверная сумма заказа'));
+    }
+
+    // Создание заказа
+    const newOrder = new Order({
+      customer: res.locals.user._id,
+      products: items,
+      address,
+      payment,
+      phone,
+      total,
+      email,
+      comment,
+    });
+
+    await newOrder.save();
+
+    res.status(201).json(newOrder);
+  } catch (error) {
+    next(error);
+  }
+};
 
 // Update an order
 export const updateOrder = async (
