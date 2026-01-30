@@ -19,11 +19,6 @@ export const getCustomers = async (
     next: NextFunction
 ) => {
     try {
-
-    if (res.locals.user.role !== 'admin') {
-      return next(new ForbiddenError('Доступ только для админов'));
-    }
-
         const {
             page = 1,
             limit = 10,
