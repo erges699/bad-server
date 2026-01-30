@@ -3,6 +3,7 @@
 import { NextFunction, Request, Response } from 'express'
 import { FilterQuery } from 'mongoose'
 import NotFoundError from '../errors/not-found-error'
+import ForbiddenError from '../errors/forbidden-error';
 import Order from '../models/order'
 import User, { IUser } from '../models/user'
 import escapeRegExp from '../utils/escapeRegExp';
@@ -17,6 +18,11 @@ export const getCustomers = async (
     next: NextFunction
 ) => {
     try {
+
+    if (res.locals.user.role !== 'admin') {
+      return next(new ForbiddenError('Доступ только для админов'));
+    }
+
         const {
             page = 1,
             limit = 10,
@@ -33,7 +39,6 @@ export const getCustomers = async (
             search,
         } = req.query
 
-        // Нормализация page и limit
         let pageNum: number;
         let limitNum: number;
 
@@ -46,7 +51,6 @@ export const getCustomers = async (
 
         const filters: FilterQuery<Partial<IUser>> = {}
 
-        // Валидация и обработка дат
         if (registrationDateFrom && isValidDate(registrationDateFrom as string)) {
         filters['createdAt.$gte'] = new Date(registrationDateFrom as string);
         }
@@ -172,6 +176,11 @@ export const getCustomerById = async (
     next: NextFunction
 ) => {
     try {
+
+    if (res.locals.user.role !== 'admin') {
+      return next(new ForbiddenError('Доступ только для админов'));
+    }
+
         const user = await User.findById(req.params.id).populate([
             'orders',
             'lastOrder',
@@ -190,6 +199,11 @@ export const updateCustomer = async (
     next: NextFunction
 ) => {
     try {
+
+    if (res.locals.user.role !== 'admin') {
+      return next(new ForbiddenError('Доступ только для админов'));
+    }
+
         const updatedUser = await User.findByIdAndUpdate(
             req.params.id,
             req.body,
@@ -218,6 +232,11 @@ export const deleteCustomer = async (
     next: NextFunction
 ) => {
     try {
+
+    if (res.locals.user.role !== 'admin') {
+      return next(new ForbiddenError('Доступ только для админов'));
+    }
+
         const deletedUser = await User.findByIdAndDelete(req.params.id).orFail(
             () =>
                 new NotFoundError(
