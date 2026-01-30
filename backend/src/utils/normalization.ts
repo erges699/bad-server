@@ -20,7 +20,8 @@ export function normalizeLimit(
     throw new BadRequestError('limit должен быть положительным числом');
   }
 
-  return Math.min(num, max);
+  const normalizedMax = Math.max(1, max); // защита от max ≤ 0
+  return Math.min(num, normalizedMax);
 }
 
 export function normalizePage(
@@ -44,6 +45,13 @@ export function normalizePage(
 }
 
 export function isValidDate(dateString: string): boolean {
+  if (!dateString || typeof dateString !== 'string') return false;
+  
+  // Проверяем формат YYYY-MM-DD
+  const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+  if (!dateRegex.test(dateString)) return false;
+
   const date = new Date(dateString);
-  return !Number.isNaN(date.getTime());
+  return !Number.isNaN(date.getTime()) && date.toISOString().startsWith(dateString);
 }
+

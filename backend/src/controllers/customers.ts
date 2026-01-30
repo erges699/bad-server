@@ -1,13 +1,14 @@
 // backend/src/controllers/customers.ts
 
-import { NextFunction, Request, Response } from 'express'
-import { FilterQuery } from 'mongoose'
-import NotFoundError from '../errors/not-found-error'
+import { NextFunction, Request, Response } from 'express';
+import { FilterQuery } from 'mongoose';
+import NotFoundError from '../errors/not-found-error';
 import ForbiddenError from '../errors/forbidden-error';
-import Order from '../models/order'
-import User, { IUser } from '../models/user'
+import BadRequestError from '../errors/bad-request-error';
+import Order from '../models/order';
+import User, { IUser } from '../models/user';
 import escapeRegExp from '../utils/escapeRegExp';
-import { normalizeLimit, normalizePage, isValidDate } from '../utils/normalization'
+import { normalizeLimit, normalizePage, isValidDate } from '../utils/normalization';
 
 // TODO: Добавить guard admin
 // eslint-disable-next-line max-len
@@ -106,21 +107,23 @@ export const getCustomers = async (
         }
 
         if (search) {
+        try {
             const escapedSearch = escapeRegExp(search as string);
             const searchRegex = new RegExp(escapedSearch, 'i');
+            
             const orders = await Order.find(
-                {
-                    $or: [{ deliveryAddress: searchRegex }],
-                },
-                '_id'
-            )
-
-            const orderIds = orders.map((order) => order._id)
-
+            { $or: [{ deliveryAddress: searchRegex }] },
+            '_id'
+            );
+            
+            const orderIds = orders.map((order) => order._id);
             filters.$or = [
-                { name: searchRegex },
-                { lastOrder: { $in: orderIds } },
-            ]
+            { name: searchRegex },
+            { lastOrder: { $in: orderIds } },
+            ];
+        } catch (e) {
+            return next(new BadRequestError('Некорректный поисковый запрос'));
+        }
         }
 
         const sort: { [key: string]: any } = {}
