@@ -68,50 +68,38 @@ export const uploadFile = async (
     }
 
     // Временная директория (как в новой версии)
-    const tempDir = resolve(
+    const uploadDir = resolve(
       __dirname,
       '../public/',
       process.env.UPLOAD_PATH_TEMP || ''
     );
-    // Финальная директория
-    const uploadDir = resolve(__dirname, '../public/uploads');
 
     // Безопасное имя файла
     const uniqueFileName = `${crypto.randomUUID()}${extname(file.originalname)}`;
-    const tempPath = join(tempDir, uniqueFileName);
     const finalPath = join(uploadDir, uniqueFileName);
 
     // Защита от path traversal
     if (
-      !normalize(tempPath).startsWith(normalize(tempDir)) ||
       !normalize(finalPath).startsWith(normalize(uploadDir))
     ) {
       return res.status(403).json({ error: 'Запрещённый путь' });
     }
 
     // Создание директорий (если нет)
-    [tempDir, uploadDir].forEach(dir => {
+    [uploadDir].forEach(dir => {
       if (!fs.existsSync(dir)) {
         fs.mkdirSync(dir, { recursive: true });
       }
     });
 
-    // 1. Сохраняем во временную директорию
-    try {
-      fs.writeFileSync(tempPath, bufferAsUint8Array);
-    } catch (err) {
-      console.error('Ошибка сохранения во временную папку:', err);
-      return res.status(500).json({ error: 'Не удалось сохранить файл во временную папку' });
-    }
 
-    // 2. Перемещаем в финальную директорию
     try {
-      fs.renameSync(tempPath, finalPath);
+      fs.renameSync(finalPath, finalPath);
     } catch (err) {
       console.error('Ошибка перемещения файла:', err);
       // Удаляем временный файл при ошибке
       try {
-        fs.unlinkSync(tempPath);
+        fs.unlinkSync(finalPath);
       } catch (unlinkErr) {
         console.error('Не удалось удалить временный файл:', unlinkErr);
       }
