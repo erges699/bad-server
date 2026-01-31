@@ -1,11 +1,13 @@
+// backend/src/controllers/upload.ts
 import { Request, Response } from 'express';
 import { join, resolve, normalize, extname } from 'path';
 import fs from 'fs';
 import { fileTypeFromBuffer } from 'file-type';
+import crypto from 'crypto';
 
 interface UploadResponse {
   filename: string;
-  originalName: string; // Добавляем поле для оригинального имени
+  originalName: string;
   path: string;
   size: number;
   mimetype: string;
@@ -50,9 +52,9 @@ export const uploadFile = async (
       return res.status(500).json({ error: 'Ошибка проверки типа файла' });
     }
 
-    // Безопасное имя файла
+    // Безопасное имя файла (используем crypto.randomUUID)
     const uploadDir = resolve(__dirname, '../../public/uploads');
-    const uniqueFilename = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}${extname(file.originalname)}`;
+    const uniqueFilename = `${crypto.randomUUID()}${extname(file.originalname)}`; // ← исправлено
     const fullPath = join(uploadDir, uniqueFilename);
 
     // Защита от path traversal
@@ -88,4 +90,3 @@ export const uploadFile = async (
     return res.status(500).json({ error: 'Внутренняя ошибка' });
   }
 };
-
