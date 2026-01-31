@@ -13,9 +13,15 @@ interface UploadResponse {
   mimetype: string;
 }
 
+// Проверка на небезопасные символы в имени файла
+const isFilenameSafe = (filename: string): boolean => {
+  const unsafeChars = /[<>:"/\\|?*]|^(?:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$/i;
+  return !unsafeChars.test(filename);
+};
+
 export const uploadFile = async (
   req: Request,
-  res: Response,
+  res: Response
 ): Promise<Response> => {
   try {
     const { file } = req;
@@ -24,7 +30,12 @@ export const uploadFile = async (
       return res.status(400).json({ error: 'Файл не загружен' });
     }
 
-    // Преобразуем Buffer в Uint8Array
+    // Проверка имени файла на небезопасные символы
+    if (!isFilenameSafe(file.originalname)) {
+      return res.status(400).json({ error: 'Недопустимое имя файла' });
+    }
+
+    // Преобразуем Buffer в Uint8Array для проверки MIME
     const bufferAsUint8Array = new Uint8Array(
       file.buffer.buffer,
       file.buffer.byteOffset,
@@ -40,7 +51,11 @@ export const uploadFile = async (
       }
 
       const allowedMimeTypes = [
-        'image/png', 'image/jpg', 'image/jpeg', 'image/gif', 'image/svg+xml'
+        'image/png',
+        'image/jpg',
+        'image/jpeg',
+        'image/gif',
+        'image/svg+xml'
       ];
       if (!allowedMimeTypes.includes(type.mime)) {
         return res.status(400).json({
@@ -52,39 +67,69 @@ export const uploadFile = async (
       return res.status(500).json({ error: 'Ошибка проверки типа файла' });
     }
 
-    // Безопасное имя файла (используем crypto.randomUUID)
-    const uploadDir = resolve(__dirname, '../../public/uploads');
-    const uniquefileName = `${crypto.randomUUID()}${extname(file.originalname)}`;
-    const fullPath = join(uploadDir, uniquefileName);
+    // Временная директория (как в новой версии)
+    const tempDir = resolve(
+      __dirname,
+      '../public/',
+      process.env.UPLOAD_PATH_TEMP || ''
+    );
+    // Финальная директория
+    const uploadDir = resolve(__dirname, '../public/uploads');
+
+    // Безопасное имя файла
+    const uniqueFileName = `${crypto.randomUUID()}${extname(file.originalname)}`;
+    const tempPath = join(tempDir, uniqueFileName);
+    const finalPath = join(uploadDir, uniqueFileName);
 
     // Защита от path traversal
-    if (!normalize(fullPath).startsWith(normalize(uploadDir))) {
+    if (
+      !normalize(tempPath).startsWith(normalize(tempDir)) ||
+      !normalize(finalPath).startsWith(normalize(uploadDir))
+    ) {
       return res.status(403).json({ error: 'Запрещённый путь' });
     }
 
-    // Создание директории
-    if (!fs.existsSync(uploadDir)) {
-      fs.mkdirSync(uploadDir, { recursive: true });
+    // Создание директорий (если нет)
+    [tempDir, uploadDir].forEach(dir => {
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+    });
+
+    // 1. Сохраняем во временную директорию
+    try {
+      fs.writeFileSync(tempPath, bufferAsUint8Array);
+    } catch (err) {
+      console.error('Ошибка сохранения во временную папку:', err);
+      return res.status(500).json({ error: 'Не удалось сохранить файл во временную папку' });
     }
 
-    // Сохранение файла
+    // 2. Перемещаем в финальную директорию
     try {
-      fs.writeFileSync(fullPath, bufferAsUint8Array);
+      fs.renameSync(tempPath, finalPath);
     } catch (err) {
-      console.error('Ошибка сохранения:', err);
-      return res.status(500).json({ error: 'Не удалось сохранить файл' });
+      console.error('Ошибка перемещения файла:', err);
+      // Удаляем временный файл при ошибке
+      try {
+        fs.unlinkSync(tempPath);
+      } catch (unlinkErr) {
+        console.error('Не удалось удалить временный файл:', unlinkErr);
+      }
+      return res.status(500).json({ error: 'Не удалось переместить файл в uploads' });
     }
+
 
     // Ответ
     const responseData: UploadResponse = {
-      fileName: uniquefileName,
+      fileName: uniqueFileName,
       originalName: file.originalname,
-      path: `/uploads/${uniquefileName}`,
+      path: `/uploads/${uniqueFileName}`,
       size: file.size,
       mimetype: file.mimetype,
     };
 
     return res.status(201).json(responseData);
+
   } catch (err) {
     console.error('Ошибка загрузки:', err);
     return res.status(500).json({ error: 'Внутренняя ошибка' });
