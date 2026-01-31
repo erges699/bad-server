@@ -3,6 +3,7 @@ import cookieParser from 'cookie-parser';
 import cors from 'cors';
 import rateLimit from 'express-rate-limit';
 import 'dotenv/config';
+import fs from 'fs';
 import express, { json, urlencoded } from 'express';
 import mongoose from 'mongoose';
 import path from 'path';
@@ -13,6 +14,11 @@ import routes from './routes';
 
 const { PORT = 3000 } = process.env;
 const app = express();
+
+const tempDir = path.join(__dirname, 'public', process.env.UPLOAD_PATH_TEMP || 'temp');
+if (!fs.existsSync(tempDir)) {
+  fs.mkdirSync(tempDir, { recursive: true });
+}
 
 // 1. Безопасность: CORS
 const corsOptions: cors.CorsOptions = {
