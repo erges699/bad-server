@@ -6,7 +6,7 @@ import { fileTypeFromBuffer } from 'file-type';
 import crypto from 'crypto';
 
 interface UploadResponse {
-  filename: string;
+  fileName: string;
   originalName: string;
   path: string;
   size: number;
@@ -54,8 +54,8 @@ export const uploadFile = async (
 
     // Безопасное имя файла (используем crypto.randomUUID)
     const uploadDir = resolve(__dirname, '../../public/uploads');
-    const uniqueFilename = `${crypto.randomUUID()}${extname(file.originalname)}`; // ← исправлено
-    const fullPath = join(uploadDir, uniqueFilename);
+    const uniquefileName = `${crypto.randomUUID()}${extname(file.originalname)}`;
+    const fullPath = join(uploadDir, uniquefileName);
 
     // Защита от path traversal
     if (!normalize(fullPath).startsWith(normalize(uploadDir))) {
@@ -77,9 +77,9 @@ export const uploadFile = async (
 
     // Ответ
     const responseData: UploadResponse = {
-      filename: uniqueFilename,
+      fileName: uniquefileName,
       originalName: file.originalname,
-      path: `/uploads/${uniqueFilename}`,
+      path: `/uploads/${uniquefileName}`,
       size: file.size,
       mimetype: file.mimetype,
     };
