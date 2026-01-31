@@ -84,8 +84,22 @@ export const getOrders = [
         filters.createdAt = { ...filters.createdAt, $lte: date };
       }
 
+      const forbiddenOperators = ['$where', '$eval', '$function'];
+
+      // Проверка фильтров перед агрегацией
+      const safeFilters = JSON.parse(JSON.stringify(filters));
+
+      // Заменено: for...of → some()
+      const hasForbiddenOperator = Object.keys(safeFilters).some(key =>
+        forbiddenOperators.includes(key)
+      );
+
+      if (hasForbiddenOperator) {
+        return next(new BadRequestError('Недопустимый оператор в фильтре'));
+      }
+
       const aggregatePipeline: any[] = [
-        { $match: filters },
+        { $match: safeFilters },
         {
           $lookup: {
             from: 'products',
@@ -115,6 +129,10 @@ export const getOrders = [
           return next(new BadRequestError('Недопустимые символы в поиске'));
         }
 
+        if (searchStr.includes('$')) {
+          return next(new BadRequestError('Недопустимый символ $ в поиске'));
+        }
+        
         const safeSearch = escapeRegExp(searchStr);
         const searchRegex = new RegExp(safeSearch, 'i');
         const searchNumber = parseFloat(searchStr);

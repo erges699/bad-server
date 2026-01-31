@@ -1,3 +1,4 @@
+// backend/src/middlewares/validations.ts
 import { Joi, celebrate } from 'celebrate';
 import { Types } from 'mongoose';
 import sanitizeHtml from 'sanitize-html';
@@ -5,12 +6,60 @@ import { Request, Response, NextFunction } from 'express';
 import BadRequestError from '../errors/bad-request-error';
 
 export const blockMongoInjection = (req: Request, _res: Response, next: NextFunction) => {
-  const suspiciousKeys = Object.keys(req.query).filter(key => key.includes('$'));
-  if (suspiciousKeys.length > 0) {
-    return next(new BadRequestError('Недопустимые параметры запроса'));
+  const forbiddenOperators = [
+    '$where',
+    '$eval',
+    '$function',
+    '$expr',
+    '$regex',
+    '$options',
+    '$geoNear',
+    '$near',
+    '$nearSphere',
+    '$text',
+    '$search',
+    '$language',
+    '$caseSensitive',
+    '$diacriticSensitive',
+  ];
+
+  const checkForInjection = (obj: any, path = ''): boolean => {
+    if (!obj || typeof obj !== 'object' || obj === null) {
+      return true;
+    }
+
+    Object.keys(obj).forEach(key => {
+      const currentPath = path ? `${path}.${key}` : key;
+
+      if (key.startsWith('$') || forbiddenOperators.includes(key)) {
+        throw new BadRequestError(`Обнаружена попытка инъекции в поле: ${currentPath}`);
+      }
+
+      const value = obj[key];
+      if (Array.isArray(value)) {
+        value.forEach((item, index) => {
+          checkForInjection(item, `${currentPath}[${index}]`);
+        });
+      } else if (typeof value === 'object') {
+        checkForInjection(value, currentPath);
+      }
+    });
+
+    return true;
+  };
+
+  try {
+    [req.query, req.body, req.params].forEach(target => {
+      if (target && typeof target === 'object') {
+        checkForInjection(target);
+      }
+    });
+    next();
+  } catch (error) {
+    next(error);
   }
-  next();
 };
+
 
 // Регулярное выражение для телефона (упрощённое, но безопасное)
 export const phoneRegExp = /^[+\d\s\-()]{6,20}$/;
