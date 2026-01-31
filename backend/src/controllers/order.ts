@@ -8,173 +8,172 @@ import Product, { IProduct } from '../models/product';
 import User from '../models/user';
 import escapeRegExp from '../utils/escapeRegExp';
 import { normalizeLimit, normalizePage } from '../utils/normalization'
-import { validateOrderBody } from '../middlewares/validations';
+import { validateOrderBody, blockMongoInjection  } from '../middlewares/validations';
 
 // GET /orders 
-export const getOrders = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
-) => {
-  try {
-    const {
-      page = 1,
-      limit = 10,
-      sortField = 'createdAt',
-      sortOrder = 'desc',
-      status,
-      totalAmountFrom,
-      totalAmountTo,
-      orderDateFrom,
-      orderDateTo,
-      search,
-    } = req.query;
-
-    // Нормализация page и limit
-    let pageNum: number;
-    let limitNum: number;
-
+export const getOrders = [
+  blockMongoInjection, // Блокирует запросы с `$` в ключах (защита от MongoDB-инъекций)
+  async (req: Request, res: Response, next: NextFunction) => {
     try {
-      pageNum = normalizePage(page);
-      limitNum = normalizeLimit(limit, 10);
-    } catch (err) {
-      return next(err);
-    }
+      const {
+        page = 1,
+        limit = 10,
+        sortField = 'createdAt',
+        sortOrder = 'desc',
+        status,
+        totalAmountFrom,
+        totalAmountTo,
+        orderDateFrom,
+        orderDateTo,
+        search,
+      } = req.query;
 
-    const filters: FilterQuery<Partial<IOrder>> = {};
+      // Нормализация page и limit
+      let pageNum: number;
+      let limitNum: number;
 
-    // Безопасная обработка status (только строковые значения)
-    if (status && typeof status === 'string') {
-      const validStatuses = ['pending', 'completed', 'cancelled']; // Список разрешённых статусов
-      if (!validStatuses.includes(status)) {
-        return next(new BadRequestError(`Недопустимый статус: ${status}`));
+      try {
+        pageNum = normalizePage(page);
+        limitNum = normalizeLimit(limit, 10);
+      } catch (err) {
+        return next(err);
       }
-      filters.status = status;
-    }
 
-    // Обработка числовых фильтров
-    if (totalAmountFrom) {
-      const amount = parseFloat(totalAmountFrom as string);
-      if (Number.isNaN(amount) || amount < 0) {
-        return next(new BadRequestError('totalAmountFrom должен быть положительным числом'));
+      const filters: FilterQuery<Partial<IOrder>> = {};
+
+      // Безопасная обработка status
+      if (status && typeof status === 'string') {
+        const validStatuses = ['pending', 'completed', 'cancelled'];
+        if (!validStatuses.includes(status)) {
+          return next(new BadRequestError(`Недопустимый статус: ${status}`));
+        }
+        filters.status = status;
       }
-      filters.totalAmount = { ...filters.totalAmount, $gte: amount };
-    }
 
-    if (totalAmountTo) {
-      const amount = parseFloat(totalAmountTo as string);
-      if (Number.isNaN(amount) || amount < 0) {
-        return next(new BadRequestError('totalAmountTo должен быть положительным числом'));
+      // Обработка числовых фильтров
+      if (totalAmountFrom) {
+        const amount = parseFloat(totalAmountFrom as string);
+        if (Number.isNaN(amount) || amount < 0) {
+          return next(new BadRequestError('totalAmountFrom должен быть положительным числом'));
+        }
+        filters.totalAmount = { ...filters.totalAmount, $gte: amount };
       }
-      filters.totalAmount = { ...filters.totalAmount, $lte: amount };
-    }
 
-    // Обработка дат
-    if (orderDateFrom) {
-      const date = new Date(orderDateFrom as string);
-      if (Number.isNaN(date.getTime())) {
-        return next(new BadRequestError('orderDateFrom имеет некорректный формат даты'));
+      if (totalAmountTo) {
+        const amount = parseFloat(totalAmountTo as string);
+        if (Number.isNaN(amount) || amount < 0) {
+          return next(new BadRequestError('totalAmountTo должен быть положительным числом'));
+        }
+        filters.totalAmount = { ...filters.totalAmount, $lte: amount };
       }
-      filters.createdAt = { ...filters.createdAt, $gte: date };
-    }
 
-    if (orderDateTo) {
-      const date = new Date(orderDateTo as string);
-      if (Number.isNaN(date.getTime())) {
-        return next(new BadRequestError('orderDateTo имеет некорректный формат даты'));
+      // Обработка дат
+      if (orderDateFrom) {
+        const date = new Date(orderDateFrom as string);
+        if (Number.isNaN(date.getTime())) {
+          return next(new BadRequestError('orderDateFrom имеет некорректный формат даты'));
+        }
+        filters.createdAt = { ...filters.createdAt, $gte: date };
       }
-      filters.createdAt = { ...filters.createdAt, $lte: date };
-    }
 
-    const aggregatePipeline: any[] = [
-      { $match: filters },
-      {
-        $lookup: {
-          from: 'products',
-          localField: 'products',
-          foreignField: '_id',
-          as: 'products',
+      if (orderDateTo) {
+        const date = new Date(orderDateTo as string);
+        if (Number.isNaN(date.getTime())) {
+          return next(new BadRequestError('orderDateTo имеет некорректный формат даты'));
+        }
+        filters.createdAt = { ...filters.createdAt, $lte: date };
+      }
+
+      const aggregatePipeline: any[] = [
+        { $match: filters },
+        {
+          $lookup: {
+            from: 'products',
+            localField: 'products',
+            foreignField: '_id',
+            as: 'products',
+          },
         },
-      },
-      {
-        $lookup: {
-          from: 'users',
-          localField: 'customer',
-          foreignField: '_id',
-          as: 'customer',
+        {
+          $lookup: {
+            from: 'users',
+            localField: 'customer',
+            foreignField: '_id',
+            as: 'customer',
+          },
         },
-      },
-      { $unwind: '$customer' },
-      { $unwind: '$products' },
-    ];
+        { $unwind: '$customer' },
+        { $unwind: '$products' },
+      ];
 
-    // Поиск по продуктам и номеру заказа
-    if (search) {
-      const searchStr = search as string;
+      // Поиск по продуктам и номеру заказа
+      if (search) {
+        const searchStr = search as string;
 
-      // Блокируем потенциально опасные шаблоны
-      if (/[*+?^${}[(]|\\/.test(searchStr)) {
-        return next(new BadRequestError('Недопустимые символы в поиске'));
+        // Блокируем потенциально опасные шаблоны (регулярные выражения)
+        if (/[*+?^${}[(]|\\/.test(searchStr)) {
+          return next(new BadRequestError('Недопустимые символы в поиске'));
+        }
+
+        const safeSearch = escapeRegExp(searchStr);
+        const searchRegex = new RegExp(safeSearch, 'i');
+        const searchNumber = parseFloat(searchStr);
+
+        const searchConditions: any[] = [{ 'products.title': { $regex: searchRegex } }];
+
+        if (!Number.isNaN(searchNumber)) {
+          searchConditions.push({ orderNumber: searchNumber });
+        }
+
+        aggregatePipeline.push({
+          $match: { $or: searchConditions },
+        });
       }
 
-      const safeSearch = escapeRegExp(searchStr);
-      const searchRegex = new RegExp(safeSearch, 'i');
-      const searchNumber = parseFloat(searchStr);
-
-      const searchConditions: any[] = [{ 'products.title': { $regex: searchRegex } }];
-
-      if (!Number.isNaN(searchNumber)) {
-        searchConditions.push({ orderNumber: searchNumber });
+      // Сортировка
+      const validSortFields = ['createdAt', 'totalAmount', 'orderNumber'];
+      if (!validSortFields.includes(sortField as string)) {
+        return next(new BadRequestError(`Поле сортировки ${sortField} не поддерживается`));
       }
 
-      aggregatePipeline.push({
-        $match: { $or: searchConditions },
+      const sort: { [key: string]: any } = {};
+      sort[sortField as string] = sortOrder === 'desc' ? -1 : 1;
+
+      aggregatePipeline.push(
+        { $sort: sort },
+        { $skip: (pageNum - 1) * limitNum },
+        { $limit: limitNum },
+        {
+          $group: {
+            _id: '$_id',
+            orderNumber: { $first: '$orderNumber' },
+            status: { $first: '$status' },
+            totalAmount: { $first: '$totalAmount' },
+            products: { $push: '$products' },
+            customer: { $first: '$customer' },
+            createdAt: { $first: '$createdAt' },
+          },
+        }
+      );
+
+      const orders = await Order.aggregate(aggregatePipeline);
+      const totalOrders = await Order.countDocuments(filters);
+      const totalPages = Math.ceil(totalOrders / limitNum);
+
+      res.status(200).json({
+        orders,
+        pagination: {
+          totalOrders,
+          totalPages,
+          currentPage: pageNum,
+          pageSize: limitNum,
+        },
       });
+    } catch (error) {
+      next(error);
     }
-
-    // Сортировка
-    const validSortFields = ['createdAt', 'totalAmount', 'orderNumber'];
-    if (!validSortFields.includes(sortField as string)) {
-      return next(new BadRequestError(`Поле сортировки ${sortField} не поддерживается`));
-    }
-
-    const sort: { [key: string]: any } = {};
-    sort[sortField as string] = sortOrder === 'desc' ? -1 : 1;
-
-    aggregatePipeline.push(
-      { $sort: sort },
-      { $skip: (pageNum - 1) * limitNum },
-      { $limit: limitNum },
-      {
-        $group: {
-          _id: '$_id',
-          orderNumber: { $first: '$orderNumber' },
-          status: { $first: '$status' },
-          totalAmount: { $first: '$totalAmount' },
-          products: { $push: '$products' },
-          customer: { $first: '$customer' },
-          createdAt: { $first: '$createdAt' },
-        },
-      }
-    );
-
-    const orders = await Order.aggregate(aggregatePipeline);
-    const totalOrders = await Order.countDocuments(filters);
-    const totalPages = Math.ceil(totalOrders / limitNum);
-
-    res.status(200).json({
-      orders,
-      pagination: {
-        totalOrders,
-        totalPages,
-        currentPage: pageNum,
-        pageSize: limitNum,
-      },
-    });
-  } catch (error) {
-    next(error);
-  }
-};
+  },
+];
 
 export const getOrdersCurrentUser = async (
   req: Request,

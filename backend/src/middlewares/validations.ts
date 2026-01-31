@@ -1,6 +1,16 @@
 import { Joi, celebrate } from 'celebrate';
 import { Types } from 'mongoose';
 import sanitizeHtml from 'sanitize-html';
+import { Request, Response, NextFunction } from 'express';
+import BadRequestError from '../errors/bad-request-error';
+
+export const blockMongoInjection = (req: Request, _res: Response, next: NextFunction) => {
+  const suspiciousKeys = Object.keys(req.query).filter(key => key.includes('$'));
+  if (suspiciousKeys.length > 0) {
+    return next(new BadRequestError('Недопустимые параметры запроса'));
+  }
+  next();
+};
 
 // Регулярное выражение для телефона (упрощённое, но безопасное)
 export const phoneRegExp = /^[+\d\s\-()]{6,20}$/;
