@@ -1,3 +1,4 @@
+// backend/src/routes/customers.ts
 import { Router } from 'express'
 import {
     deleteCustomer,
@@ -7,8 +8,12 @@ import {
 } from '../controllers/customers'
 import auth , { roleGuardMiddleware } from '../middlewares/auth'
 import { Role } from '../models/user'
+import { customerRateLimit } from '../middlewares/rateLimit';
 
 const customerRouter = Router()
+
+// Применяем рейт‑лимит КО ВСЕМ маршрутам роутера
+customerRouter.use(customerRateLimit);
 
 customerRouter.get('/', auth, roleGuardMiddleware(Role.Admin), getCustomers)
 customerRouter.get('/:id', auth, roleGuardMiddleware(Role.Admin), getCustomerById)
