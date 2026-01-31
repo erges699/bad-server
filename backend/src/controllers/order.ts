@@ -3,7 +3,6 @@ import { NextFunction, Request, Response } from 'express';
 import { FilterQuery, Error as MongooseError} from 'mongoose';
 import BadRequestError from '../errors/bad-request-error';
 import NotFoundError from '../errors/not-found-error';
-import ForbiddenError from '../errors/forbidden-error';
 import Order, { IOrder } from '../models/order';
 import Product, { IProduct } from '../models/product';
 import User from '../models/user';
@@ -16,11 +15,6 @@ export const getOrders = async (
   next: NextFunction
 ) => {
   try {
-    // Проверка роли (только для админов)
-    if (res.locals.user.role !== 'admin') {
-      return next(new ForbiddenError('Доступ только для админов'));
-    }
-
     const {
       page = 1,
       limit = 10,

@@ -3,16 +3,12 @@
 import { NextFunction, Request, Response } from 'express';
 import { FilterQuery } from 'mongoose';
 import NotFoundError from '../errors/not-found-error';
-import ForbiddenError from '../errors/forbidden-error';
 import BadRequestError from '../errors/bad-request-error';
 import Order from '../models/order';
 import User, { IUser } from '../models/user';
 import escapeRegExp from '../utils/escapeRegExp';
 import { normalizeLimit, normalizePage, isValidDate } from '../utils/normalization';
 
-// TODO: Добавить guard admin
-// eslint-disable-next-line max-len
-// Get GET /customers?page=2&limit=5&sort=totalAmount&order=desc&registrationDateFrom=2023-01-01&registrationDateTo=2023-12-31&lastOrderDateFrom=2023-01-01&lastOrderDateTo=2023-12-31&totalAmountFrom=100&totalAmountTo=1000&orderCountFrom=1&orderCountTo=10
 export const getCustomers = async (
     req: Request,
     res: Response,
@@ -166,7 +162,6 @@ export const getCustomers = async (
     }
 }
 
-// TODO: Добавить guard admin
 // Get /customers/:id
 export const getCustomerById = async (
     req: Request,
@@ -174,11 +169,6 @@ export const getCustomerById = async (
     next: NextFunction
 ) => {
     try {
-
-    if (res.locals.user.role !== 'admin') {
-      return next(new ForbiddenError('Доступ только для админов'));
-    }
-
         const user = await User.findById(req.params.id).populate([
             'orders',
             'lastOrder',
@@ -189,7 +179,6 @@ export const getCustomerById = async (
     }
 }
 
-// TODO: Добавить guard admin
 // Patch /customers/:id
 export const updateCustomer = async (
     req: Request,
@@ -197,11 +186,6 @@ export const updateCustomer = async (
     next: NextFunction
 ) => {
     try {
-
-    if (res.locals.user.role !== 'admin') {
-      return next(new ForbiddenError('Доступ только для админов'));
-    }
-
         const updatedUser = await User.findByIdAndUpdate(
             req.params.id,
             req.body,
@@ -222,7 +206,6 @@ export const updateCustomer = async (
     }
 }
 
-// TODO: Добавить guard admin
 // Delete /customers/:id
 export const deleteCustomer = async (
     req: Request,
@@ -230,11 +213,6 @@ export const deleteCustomer = async (
     next: NextFunction
 ) => {
     try {
-
-    if (res.locals.user.role !== 'admin') {
-      return next(new ForbiddenError('Доступ только для админов'));
-    }
-
         const deletedUser = await User.findByIdAndDelete(req.params.id).orFail(
             () =>
                 new NotFoundError(
