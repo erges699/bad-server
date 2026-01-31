@@ -8,7 +8,9 @@ import Product, { IProduct } from '../models/product';
 import User from '../models/user';
 import escapeRegExp from '../utils/escapeRegExp';
 import { normalizeLimit, normalizePage } from '../utils/normalization'
+import { validateOrderBody } from '../middlewares/validations';
 
+// GET /orders 
 export const getOrders = async (
   req: Request,
   res: Response,
@@ -129,8 +131,6 @@ export const getOrders = async (
         $match: { $or: searchConditions },
       });
     }
-
-
 
     // Сортировка
     const validSortFields = ['createdAt', 'totalAmount', 'orderNumber'];
@@ -337,46 +337,51 @@ export const getOrderCurrentUserByNumber = async (
 }
 
 // POST /product
-export const createOrder = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
-) => {
-  try {
-    // Валидация выполняется middleware, поэтому здесь только бизнес-логика
-    const { address, payment, phone, total, email, items, comment } = req.body;
+export const createOrder = [
+  validateOrderBody,
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { address, payment, phone, total, email, items, comment } = req.body;
 
-    // Проверка наличия товаров
-    const products = await Product.find<IProduct>({ _id: { $in: items } });
-    if (products.length !== items.length) {
-      return next(new BadRequestError('Некоторые товары не найдены'));
+      // Проверка наличия товаров
+      const products = await Product.find<IProduct>({ _id: { $in: items } });
+      if (products.length !== items.length) {
+        return next(new BadRequestError('Некоторые товары не найдены'));
+      }
+
+      // Расчёт суммы
+      const totalBasket = products.reduce((acc, p) => acc + p.price, 0);
+      if (totalBasket !== total) {
+        return next(new BadRequestError('Неверная сумма заказа'));
+      }
+
+      // Создание заказа (комментарий уже санитизирован middleware)
+      const newOrder = new Order({
+        customer: res.locals.user._id,
+        products: items,
+        address,
+        payment,
+        phone,
+        total,
+        email,
+        comment,
+      });
+
+      await newOrder.save();
+
+      res.status(201).json(newOrder);
+    } catch (error) {
+      // Обработка ошибок Mongoose
+      if (error instanceof MongooseError.ValidationError) {
+        return next(new BadRequestError(error.message));
+      }
+      if (error instanceof MongooseError.CastError) {
+        return next(new BadRequestError('Передан невалидный ID товара'));
+      }
+      next(error);
     }
-
-    // Расчёт суммы
-    const totalBasket = products.reduce((acc, p) => acc + p.price, 0);
-    if (totalBasket !== total) {
-      return next(new BadRequestError('Неверная сумма заказа'));
-    }
-
-    // Создание заказа
-    const newOrder = new Order({
-      customer: res.locals.user._id,
-      products: items,
-      address,
-      payment,
-      phone,
-      total,
-      email,
-      comment,
-    });
-
-    await newOrder.save();
-
-    res.status(201).json(newOrder);
-  } catch (error) {
-    next(error);
   }
-};
+];
 
 // Update an order
 export const updateOrder = async (
