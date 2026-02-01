@@ -1,30 +1,38 @@
+// backend/src/middlewares/file.ts
 import { Request, Express } from 'express';
 import multer, { FileFilterCallback, StorageEngine } from 'multer';
 import { join, resolve, normalize, extname } from 'path';
-import { fileTypeFromBuffer } from 'file-type';
-import crypto from 'crypto';
 import fs from 'fs';
+import crypto from 'crypto';
 
-// Типы для callback-функций Multer
-type DestinationCallback = (error: Error | null, destination: string) => void;
-type FileNameCallback = (error: Error | null, filename: string) => void;
+
+// Тип файла Multer
+type MulterFile = Express.Multer.File;
 
 
 // Допустимые MIME‑типы
-const ACCEPTED_MIME_TYPES = [
+const ACCEPTED_MIME_TYPES = new Set([
   'image/png',
   'image/jpg',
   'image/jpeg',
   'image/gif',
   'image/svg+xml',
-];
+]);
 
-// Генерируем безопасное имя файла
-const generateSafeFileName = (file: Express.Multer.File): string => {
+// Соответствие MIME-типов и допустимых расширений
+const MIME_TO_EXT: Record<string, string[]> = {
+  'image/png': ['.png'],
+  'image/jpg': ['.jpg', '.jpeg'],
+  'image/jpeg': ['.jpg', '.jpeg'],
+  'image/gif': ['.gif'],
+  'image/svg+xml': ['.svg'],
+};
+
+// Генерируем безопасное имя файла с использованием crypto.randomUUID
+const generateSafeFileName = (file: MulterFile): string => {
   const ext = extname(file.originalname).toLowerCase();
-  const timestamp = Date.now();
-  const randomHash = crypto.randomBytes(8).toString('hex');
-  return `${timestamp}-${randomHash}${ext}`;
+  const uuid = crypto.randomUUID();
+  return `${uuid}${ext}`;
 };
 
 // Проверяем, что путь не выходит за пределы разрешённой директории
@@ -52,40 +60,41 @@ ensureDirectoryExists(uploadDir);
 
 // Настройка хранилища Multer (тип StorageEngine)
 const storage: StorageEngine = multer.diskStorage({
-  destination: (_req: Request, _file: Express.Multer.File, cb: DestinationCallback) => {
+  destination: (_req: Request, _file: MulterFile, cb: (error: Error | null, destination: string) => void) => {
     cb(null, uploadDir);
   },
-  filename: (_req: Request, file: Express.Multer.File, cb: FileNameCallback) => {
+  filename: (_req: Request, file: MulterFile, cb: (error: Error | null, filename: string) => void) => {
     const safeName = generateSafeFileName(file);
     cb(null, safeName);
   },
 });
 
-// Фильтрация файлов по MIME‑типу и содержимому
-const fileFilter = async (_req: Request, file: Express.Multer.File, cb: FileFilterCallback) => {
+// Фильтрация файлов по MIME‑типу и расширению (синхронная)
+const fileFilter: (req: Request, file: MulterFile, cb: FileFilterCallback) => void = (
+  _req: Request,
+  file: MulterFile,
+  cb: FileFilterCallback
+) => {
   try {
-    // Преобразуем Buffer в Uint8Array для совместимости с file-type
-    const bufferAsUint8Array = new Uint8Array(file.buffer);
-    const type = await fileTypeFromBuffer(bufferAsUint8Array);
-
-    if (!type || !ACCEPTED_MIME_TYPES.includes(type.mime)) {
-      return cb(null, false);
-    }
-
-    // Дополнительная проверка расширения
+    // 1. Проверка расширения файла
     const ext = extname(file.originalname).toLowerCase();
-    const mimeToExt: { [key: string]: string[] } = {
-      'image/png': ['.png'],
-      'image/jpg': ['.jpg', '.jpeg'],
-      'image/jpeg': ['.jpg', '.jpeg'],
-      'image/gif': ['.gif'],
-      'image/svg+xml': ['.svg'],
-    };
-    if (!mimeToExt[type.mime]?.includes(ext)) {
+    if (!ext) {
       return cb(null, false);
     }
 
-    // Проверяем безопасность пути
+    // 2. Проверка MIME-типа по заголовку (эвристика)
+    const mime = file.mimetype.toLowerCase();
+    if (!ACCEPTED_MIME_TYPES.has(mime)) {
+      return cb(null, false);
+    }
+
+    // 3. Соответствие MIME-типа и расширения
+    const validExtensions = MIME_TO_EXT[mime];
+    if (!validExtensions || !validExtensions.includes(ext)) {
+      return cb(null, false);
+    }
+
+    // 4. Проверка безопасности пути
     const fullPath = join(uploadDir, generateSafeFileName(file));
     if (!isSafePath(uploadDir, fullPath)) {
       console.error('Недопустимый путь к файлу:', fullPath);
@@ -98,7 +107,6 @@ const fileFilter = async (_req: Request, file: Express.Multer.File, cb: FileFilt
     cb(null, false);
   }
 };
-
 
 // Экспортируем настроенного Multer с лимитами
 export default multer({
