@@ -4,12 +4,14 @@ import cors from 'cors';
 import rateLimit from 'express-rate-limit';
 import 'dotenv/config';
 import fs from 'fs';
+import multer from 'multer';
 import express, { json, urlencoded } from 'express';
 import mongoose from 'mongoose';
 import path from 'path';
 import { DB_ADDRESS, ORIGIN_ALLOW } from './config';
 import errorHandler from './middlewares/error-handler';
 import serveStatic from './middlewares/serverStatic';
+import upload from './middlewares/file';
 import routes from './routes';
 
 const { PORT = 3000 } = process.env;
@@ -56,7 +58,26 @@ app.use(
   })
 );
 
-// 5. Остальные middleware
+app.post('/upload', (req, res, _next) => {
+  upload.single('file')(req, res, (err) => {
+    if (err) {
+      // Multer-ошибки (размер, MIME, содержимое и т.п.)
+      if (err instanceof multer.MulterError) {
+        return res.status(400).json({ error: err.message });
+      }
+      // Другие ошибки
+      return res.status(500).json({ error: 'Internal server error' });
+    }
+
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+
+    res.json({ fileName: req.file.filename });
+  });
+});
+
+// 6. Остальные middleware
 app.use(cookieParser());
 app.use(routes);
 app.use(errors());

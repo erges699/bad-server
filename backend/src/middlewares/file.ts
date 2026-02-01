@@ -1,9 +1,10 @@
 // backend/src/middlewares/file.ts
-import { Request, Express }   from 'express';
+import { Request, Express } from 'express';
 import multer, { FileFilterCallback, StorageEngine } from 'multer';
 import { join, resolve, normalize, extname } from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
+import { fileTypeFromBuffer } from 'file-type'; // Для проверки содержимого
 
 type MulterFile = Express.Multer.File;
 
@@ -58,7 +59,7 @@ const storage: StorageEngine = multer.diskStorage({
   },
 });
 
-const fileFilter: (req: Request, file: MulterFile, cb: FileFilterCallback) => void = (
+const fileFilter: (req: Request, file: MulterFile, cb: FileFilterCallback) => void = async (
   _req: Request,
   file: MulterFile,
   cb: FileFilterCallback
@@ -80,7 +81,7 @@ const fileFilter: (req: Request, file: MulterFile, cb: FileFilterCallback) => vo
       return cb(new Error('Invalid file extension.') as unknown as null, false);
     }
 
-    // 4. Проверка MIME-типа
+    // 4. Проверка MIME по заголовку
     const mime = file.mimetype.toLowerCase();
     if (!ACCEPTED_MIME_TYPES.has(mime)) {
       return cb(new Error(`Unsupported MIME type: ${mime}`) as unknown as null, false);
@@ -95,24 +96,41 @@ const fileFilter: (req: Request, file: MulterFile, cb: FileFilterCallback) => vo
       );
     }
 
-    // 6. Проверка безопасности пути
+    // 6. Глубокая проверка содержимого (через file-type)
+    try {
+      const uint8Array = new Uint8Array(file.buffer);
+      const fileType = await fileTypeFromBuffer(uint8Array);
+
+      if (!fileType || !ACCEPTED_MIME_TYPES.has(fileType.mime)) {
+        return cb(
+          new Error('Invalid file content. Not a valid image.') as unknown as null,
+          false
+        );
+      }
+    } catch (err) {
+      console.error('Ошибка при анализе содержимого файла:', err);
+      return cb(
+        new Error('Failed to validate file content.') as unknown as null,
+        false
+      );
+    }
+
+
+    // 7. Проверка безопасности пути
     const fullPath = join(uploadDir, generateSafeFileName(file));
     if (!isSafePath(uploadDir, fullPath)) {
       console.error('Недопустимый путь к файлу:', fullPath);
       return cb(new Error('Invalid file path.') as unknown as null, false);
     }
 
-    // Успех: передаём null и true
-    cb(null, true);
+    cb(null, true); // Всё ок
 
   } catch (err) {
     console.error('Ошибка при проверке файла:', err);
     const error = err instanceof Error ? err : new Error('File validation failed.');
-    cb(error as unknown as null, false); // Приводим к unknown, затем к null
+    cb(error as unknown as null, false);
   }
 };
-
-
 
 export default multer({
   storage,
