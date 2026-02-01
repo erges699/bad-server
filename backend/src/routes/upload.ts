@@ -1,9 +1,10 @@
 // backend/src/routes/upload.ts
-import { Router } from 'express'
-import { uploadFile } from '../controllers/upload'
-import fileMiddleware from '../middlewares/file'
+import { Router } from 'express';
+import { uploadFile } from '../controllers/upload';
+import fileMiddleware from '../middlewares/file';
 
-const uploadRouter = Router()
-uploadRouter.post('/', fileMiddleware.single('file'), uploadFile)
+const uploadRouter = Router();
 
-export default uploadRouter
+uploadRouter.post('/', fileMiddleware.single('file'), uploadFile);
+
+export default uploadRouter;
