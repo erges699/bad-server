@@ -4,14 +4,14 @@ import cors from 'cors';
 import rateLimit from 'express-rate-limit';
 import 'dotenv/config';
 import fs from 'fs';
-import multer from 'multer';
+// import multer from 'multer';
 import express, { json, urlencoded } from 'express';
 import mongoose from 'mongoose';
 import path from 'path';
 import { DB_ADDRESS, ORIGIN_ALLOW } from './config';
 import errorHandler from './middlewares/error-handler';
 import serveStatic from './middlewares/serverStatic';
-import upload from './middlewares/file';
+// import upload from './middlewares/file';
 import routes from './routes';
 
 const { PORT = 3000 } = process.env;
@@ -57,7 +57,7 @@ app.use(
     },
   })
 );
-
+/*
 app.post('/upload', (req, res, _next) => {
   upload.single('file')(req, res, (err) => {
     if (err) {
@@ -76,7 +76,7 @@ app.post('/upload', (req, res, _next) => {
     res.json({ fileName: req.file.filename });
   });
 });
-
+*/
 // 6. Остальные middleware
 app.use(cookieParser());
 app.use(routes);
