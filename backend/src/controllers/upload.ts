@@ -1,125 +1,87 @@
-// backend/src/controllers/upload.ts
-import { Request, Response } from 'express';
-import { join, resolve, normalize, extname } from 'path';
-import fs from 'fs';
-import { fileTypeFromBuffer } from 'file-type';
+import { NextFunction, Request, Response } from 'express';
+import { constants } from 'http2';
+import multer from 'multer';
 import crypto from 'crypto';
+import path from 'path';
+import { promisify } from 'util';
+import BadRequestError from '../errors/bad-request-error';
 
-interface UploadResponse {
-  fileName: string;
-  originalName: string;
-  path: string;
-  size: number;
-  mimetype: string;
-}
+// Конфигурация хранения файлов через multer
+const storage = multer.diskStorage({
+  destination: (_req, _file, cb) => {
+    const uploadPath = process.env.UPLOAD_PATH || './uploads';
+    cb(null, uploadPath);
+  },
+  filename: (_req, file, cb) => {
+    // Генерируем уникальное имя с помощью crypto.randomUUID()
+    const uniqueFilename = `${crypto.randomUUID()}${path.extname(file.originalname)}`;
+    cb(null, uniqueFilename);
+  }
+});
 
-// Проверка на небезопасные символы в имени файла
-const isFilenameSafe = (filename: string): boolean => {
-  const unsafeChars = /[<>:"/\\|?*]|^(?:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$/i;
-  return !unsafeChars.test(filename);
+// Проверка допустимых MIME-типов
+const isAllowedFileType = (mimetype: string): boolean => {
+  const allowedTypes = [
+    'image/png',
+    'image/jpeg',
+    'image/jpg',
+    'image/webp'
+  ];
+  return allowedTypes.includes(mimetype);
 };
+
+// Настройка multer с лимитами и фильтрацией
+const upload = multer({
+  storage,
+  limits: {
+    fileSize: 1000000 // 1MB
+  },
+  fileFilter: (_req, file, cb) => {
+    if (!isAllowedFileType(file.mimetype)) {
+      return cb(new Error('Error: images only'));
+    }
+    cb(null, true);
+  }
+});
+
+// Промисифицированная версия multer для использования в async/await
+const uploadSingle = promisify(upload.single('file'));
 
 export const uploadFile = async (
   req: Request,
-  res: Response
-): Promise<Response> => {
+  res: Response,
+  next: NextFunction
+) => {
   try {
-    const { file } = req;
+    // Обрабатываем файл через multer
+    await uploadSingle(req, res);
 
-    if (!file) {
-      return res.status(400).json({ error: 'Файл не загружен' });
+    if (!req.file) {
+      return next(new BadRequestError('Файл не загружен'));
     }
 
-    // Проверка имени файла на небезопасные символы
-    if (!isFilenameSafe(file.originalname)) {
-      return res.status(400).json({ error: 'Недопустимое имя файла' });
-    }
+    // Формируем путь к файлу
+    const uploadPath = process.env.UPLOAD_PATH || '';
+    const fileName = `/${uploadPath}/${req.file.filename}`;
 
-    // Преобразуем Buffer в Uint8Array для проверки MIME
-    const bufferAsUint8Array = new Uint8Array(
-      file.buffer.buffer,
-      file.buffer.byteOffset,
-      file.buffer.length
-    );
-
-    // Проверка MIME‑типа
-    let type;
-    try {
-      type = await fileTypeFromBuffer(bufferAsUint8Array);
-      if (!type) {
-        return res.status(400).json({ error: 'Не удалось определить тип файла' });
-      }
-
-      const allowedMimeTypes = [
-        'image/png',
-        'image/jpg',
-        'image/jpeg',
-        'image/gif',
-        'image/svg+xml'
-      ];
-      if (!allowedMimeTypes.includes(type.mime)) {
-        return res.status(400).json({
-          error: `Недопустимый тип: ${type.mime}`
-        });
-      }
-    } catch (err) {
-      console.error('Ошибка проверки MIME:', err);
-      return res.status(500).json({ error: 'Ошибка проверки типа файла' });
-    }
-
-    // Временная директория (как в новой версии)
-    const uploadDir = resolve(
-      __dirname,
-      '../public/',
-      process.env.UPLOAD_PATH_TEMP || ''
-    );
-
-    // Безопасное имя файла
-    const uniqueFileName = `${crypto.randomUUID()}${extname(file.originalname)}`;
-    const finalPath = join(uploadDir, uniqueFileName);
-
-    // Защита от path traversal
-    if (
-      !normalize(finalPath).startsWith(normalize(uploadDir))
-    ) {
-      return res.status(403).json({ error: 'Запрещённый путь' });
-    }
-
-    // Создание директорий (если нет)
-    [uploadDir].forEach(dir => {
-      if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true });
-      }
+    return res.status(constants.HTTP_STATUS_CREATED).send({
+      fileName,
+      originalName: req.file.originalname
     });
-
-
-    try {
-      fs.renameSync(finalPath, finalPath);
-    } catch (err) {
-      console.error('Ошибка перемещения файла:', err);
-      // Удаляем временный файл при ошибке
-      try {
-        fs.unlinkSync(finalPath);
-      } catch (unlinkErr) {
-        console.error('Не удалось удалить временный файл:', unlinkErr);
+  } catch (error) {
+    // Обработка ошибок multer (например, превышение размера или неверный тип файла)
+    if (error instanceof Error) {
+      if (error.message === 'Error: images only') {
+        return next(new BadRequestError('Допустимы только изображения (PNG, JPEG, JPG, WebP)'));
       }
-      return res.status(500).json({ error: 'Не удалось переместить файл в uploads' });
+      if (error.message.includes('File too large')) {
+        return next(new BadRequestError('Размер файла превышает 1 МБ'));
+      }
     }
-
-
-    // Ответ
-    const responseData: UploadResponse = {
-      fileName: uniqueFileName,
-      originalName: file.originalname,
-      path: `/uploads/${uniqueFileName}`,
-      size: file.size,
-      mimetype: file.mimetype,
-    };
-
-    return res.status(201).json(responseData);
-
-  } catch (err) {
-    console.error('Ошибка загрузки:', err);
-    return res.status(500).json({ error: 'Внутренняя ошибка' });
+    return next(error);
   }
+};
+
+export default {
+  uploadFile
 };
