@@ -13,7 +13,7 @@ const router = Router()
 router.use('/auth', authRouter)
 router.use('/product', productRouter)
 router.use('/order', auth, orderRouter)
-router.use('/upload', auth, uploadRouter)
+router.use('/upload', uploadRouter)
 router.use('/customers', auth, customerRouter)
 
 router.use((_req: Request, _res: Response, next: NextFunction) => {

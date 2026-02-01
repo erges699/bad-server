@@ -16,7 +16,8 @@ const ACCEPTED_MIME_TYPES = new Set([
   'image/jpeg',
   'image/gif',
   'image/svg+xml',
-]);
+].map(mime => mime.toLowerCase())); // Приводим все к нижнему регистру
+
 
 // Соответствие MIME‑типа и допустимых расширений
 const MIME_TO_EXT: Record<string, string[]> = {
