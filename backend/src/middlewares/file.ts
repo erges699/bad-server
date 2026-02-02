@@ -2,40 +2,34 @@
 import { Request, Express } from 'express';
 import multer, { FileFilterCallback, StorageEngine } from 'multer';
 import { join, extname } from 'path';
-// import fs from 'fs';
-// import { join, resolve, normalize, extname } from 'path';
 import crypto from 'crypto';
-import BadRequestError from '../errors/bad-request-error';
 
 type DestinationCallback = (error: Error | null, destination: string) => void
 type FileNameCallback = (error: Error | null, filename: string) => void
 type MulterFile = Express.Multer.File;
+
+const ACCEPTED_MIME_TYPES = new Set([
+  'image/png',
+  'image/jpg',
+  'image/jpeg',
+  'image/gif',
+  'image/svg+xml',
+]);
+
+const MIME_TO_EXT: Record<string, string[]> = {
+  'image/png': ['.png'],
+  'image/jpg': ['.jpg', '.jpeg'],
+  'image/jpeg': ['.jpg', '.jpeg'],
+  'image/gif': ['.gif'],
+  'image/svg+xml': ['.svg'],
+};
 
 const generateSafeFileName = (file: MulterFile): string => {
   const ext = extname(file.originalname).toLowerCase();
   const uuid = crypto.randomUUID();
   return `${uuid}${ext}`;
 };
-/*
-const isSafePath = (baseDir: string, targetPath: string): boolean => {
-  const normalized = normalize(targetPath);
-  return normalized.startsWith(baseDir);
-};
 
-const ensureDirectoryExists = (dirPath: string): void => {
-  if (!fs.existsSync(dirPath)) {
-    fs.mkdirSync(dirPath, { recursive: true });
-  }
-};
-
-const uploadDir = resolve(
-  __dirname,
-  '../public',
-  process.env.UPLOAD_PATH_TEMP || 'temp'
-);
-
-ensureDirectoryExists(uploadDir);
-*/
 const storage: StorageEngine = multer.diskStorage({
     destination: (
         _req: Request,
@@ -62,26 +56,53 @@ const storage: StorageEngine = multer.diskStorage({
     },
 })
 
-const types = [
-    'image/png',
-    'image/jpg',
-    'image/jpeg',
-    'image/gif',
-    'image/svg+xml',
-]
-
-const fileFilter = (
-    _req: Request,
-    file: Express.Multer.File,
-    cb: FileFilterCallback
+const fileFilter: (req: Request, file: MulterFile, cb: FileFilterCallback) => void = async (
+  _req: Request,
+  file: MulterFile,
+  cb: FileFilterCallback
 ) => {
-    if (!types.includes(file.mimetype)) {
-        const ext = types.map(type => type.split('/')[1]);
+  try {
 
-        return cb(new BadRequestError(`Недопустимый тип файла. Допустимые типы: .${ext.join(', .')}`))
+    if (file.size < 2048) {
+      return cb(new Error('File too small. Minimum 2 KB required.') as unknown as null, false);
     }
 
-    return cb(null, true);
-}
+    if (file.size > 10 * 1024 * 1024) {
+      return cb(new Error('File too large. Maximum 10 MB allowed.') as unknown as null, false);
+    }
 
-export default multer({ storage, fileFilter })
+    const ext = extname(file.originalname).toLowerCase();
+    if (!ext) {
+      return cb(new Error('Invalid file extension.') as unknown as null, false);
+    }
+
+    const mime = file.mimetype.toLowerCase();
+    if (!ACCEPTED_MIME_TYPES.has(mime)) {
+      return cb(new Error(`Unsupported MIME type: ${mime}`) as unknown as null, false);
+    }
+
+    const validExtensions = MIME_TO_EXT[mime];
+    if (!validExtensions || !validExtensions.includes(ext)) {
+      return cb(
+        new Error(`MIME type ${mime} does not match extension ${ext}.`) as unknown as null,
+        false
+      );
+    }
+
+    cb(null, true);
+
+  } catch (err) {
+    console.error('Ошибка при проверке файла:', err);
+    const error = err instanceof Error ? err : new Error('File validation failed.');
+    cb(error as unknown as null, false);
+  }
+};
+
+export default multer({
+  storage,
+  fileFilter,
+  limits: {
+    fileSize: 10 * 1024 * 1024,
+    files: 1,
+  },
+});
