@@ -9,7 +9,7 @@ type DestinationCallback = (error: Error | null, destination: string) => void
 type FileNameCallback = (error: Error | null, filename: string) => void
 type MulterFile = Express.Multer.File;
 
-const allowedMimeTypes = [
+const ALLOWED_MIME_TYPES  = [
     'image/png',
     'image/jpg',
     'image/jpeg',
@@ -59,7 +59,7 @@ const fileFilter = (
     cb: FileFilterCallback
 ) => {
     // 1. MIME-тип
-    if (!allowedMimeTypes.includes(file.mimetype)) {
+    if (!ALLOWED_MIME_TYPES .includes(file.mimetype)) {
       console.log('[Multer] Неподдерживаемый MIME:', file.mimetype);
       return cb(null, false);
     }
