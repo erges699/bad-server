@@ -3,6 +3,7 @@ import { Request, Express } from 'express';
 import multer, { FileFilterCallback, StorageEngine } from 'multer';
 import { join, extname } from 'path';
 import crypto from 'crypto';
+import { fileTypeFromBuffer } from 'file-type';
 
 type DestinationCallback = (error: Error | null, destination: string) => void
 type FileNameCallback = (error: Error | null, filename: string) => void
@@ -62,25 +63,29 @@ const fileFilter: (req: Request, file: MulterFile, cb: FileFilterCallback) => vo
   cb: FileFilterCallback
 ) => {
   try {
-
+    // 1. Проверка минимального размера (2KB)
     if (file.size < 2048) {
       return cb(new Error('File too small. Minimum 2 KB required.') as unknown as null, false);
     }
 
+    // 2. Проверка максимального размера (10MB)
     if (file.size > 10 * 1024 * 1024) {
       return cb(new Error('File too large. Maximum 10 MB allowed.') as unknown as null, false);
     }
 
+    // 3. Проверка расширения
     const ext = extname(file.originalname).toLowerCase();
     if (!ext) {
       return cb(new Error('Invalid file extension.') as unknown as null, false);
     }
 
+    // 4. Проверка MIME по заголовку
     const mime = file.mimetype.toLowerCase();
     if (!ACCEPTED_MIME_TYPES.has(mime)) {
       return cb(new Error(`Unsupported MIME type: ${mime}`) as unknown as null, false);
     }
 
+    // 5. Соответствие MIME и расширения
     const validExtensions = MIME_TO_EXT[mime];
     if (!validExtensions || !validExtensions.includes(ext)) {
       return cb(
@@ -89,7 +94,26 @@ const fileFilter: (req: Request, file: MulterFile, cb: FileFilterCallback) => vo
       );
     }
 
-    cb(null, true);
+    // 6. Глубокая проверка содержимого (через file-type)
+    try {
+      const uint8Array = new Uint8Array(file.buffer);
+      const fileType = await fileTypeFromBuffer(uint8Array);
+
+      if (!fileType || !ACCEPTED_MIME_TYPES.has(fileType.mime)) {
+        return cb(
+          new Error('Invalid file content. Not a valid image.') as unknown as null,
+          false
+        );
+      }
+    } catch (err) {
+      console.error('Ошибка при анализе содержимого файла:', err);
+      return cb(
+        new Error('Failed to validate file content.') as unknown as null,
+        false
+      );
+    }
+
+    cb(null, true); // Всё ок
 
   } catch (err) {
     console.error('Ошибка при проверке файла:', err);
@@ -102,7 +126,7 @@ export default multer({
   storage,
   fileFilter,
   limits: {
-    fileSize: 10 * 1024 * 1024,
+    fileSize: 10 * 1024 * 1024, // 10 MB (максимум)
     files: 1,
   },
 });
