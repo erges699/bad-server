@@ -94,8 +94,8 @@ export const uploadFile = async (
 
   try {
     // Формируем путь к файлу
-    const fileName = process.env.UPLOAD_PATH
-      ? `/${process.env.UPLOAD_PATH}/${file.filename}`
+    const fileName = process.env.UPLOAD_PATH_TEMP
+      ? `/${process.env.UPLOAD_PATH_TEMP}/${file.filename}`
       : `/${file.filename}`;
 
       console.log('file.filename:', file.filename);          // Сгенерированное имя
