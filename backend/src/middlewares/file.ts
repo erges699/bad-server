@@ -18,6 +18,7 @@ const ALLOWED_MIME_TYPES  = [
 ];
 
 const MIN_FILE_SIZE = 2048; // 2 KB
+const MID_FILE_SIZE = 5 * 1024 * 1024; // 5 MB
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
 
 const generateSafeFileName = (file: MulterFile): string => {
@@ -83,9 +84,9 @@ const fileFilter = (
 
 export default multer({
   storage,
-  fileFilter,
   limits: {
-    fileSize: MAX_FILE_SIZE,
+    fileSize: MID_FILE_SIZE,
     files: 1,
   },
+  fileFilter
 });
