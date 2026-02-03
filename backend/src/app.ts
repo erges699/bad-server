@@ -18,7 +18,6 @@ const app = express();
 const tempDir = path.join(__dirname, 'public', process.env.UPLOAD_PATH_TEMP || 'temp');
 if (!fs.existsSync(tempDir)) {
   fs.mkdirSync(tempDir, { recursive: true });
-  console.log(`Папка создана: ${tempDir}`);
 }
 
 // Безопасность HTTP-заголовков
