@@ -98,6 +98,10 @@ export const uploadFile = async (
       ? `/${process.env.UPLOAD_PATH}/${file.filename}`
       : `/${file.filename}`;
 
+      console.log('file.filename:', file.filename);          // Сгенерированное имя
+      console.log('file.originalname:', file.originalname);  // Оригинальное имя
+      console.log('Ответ fileName:', fileName);                  // Что пойдёт в ответ
+
     return res.status(constants.HTTP_STATUS_CREATED).send({
       fileName,
       originalName: file.originalname,

@@ -24,7 +24,10 @@ const generateSafeFileName = (file: MulterFile): string => {
   const ext = extname(file.originalname).toLowerCase();
   const safeExt = ext && ext.length > 1 ? ext : '.bin';
   const uuid = crypto.randomUUID();
-  return `${uuid}${safeExt}`;
+  // return `${uuid}${safeExt}`;
+  const newName = `${uuid}${safeExt}`;
+  console.log('Generated:', newName);
+  return newName;  
 };
 
 const storage: StorageEngine = multer.diskStorage({
