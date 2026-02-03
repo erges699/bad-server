@@ -3,6 +3,14 @@ import { NextFunction, Request, Response } from 'express';
 import { constants } from 'http2';
 import BadRequestError from '../errors/bad-request-error';
 
+const ACCEPTED_MIME_TYPES = new Set([
+  'image/png',
+  'image/jpg',
+  'image/jpeg',
+  'image/gif',
+  'image/svg+xml',
+]);
+
 const MIN_FILE_SIZE = 2048; // 2 KB
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
 
@@ -23,6 +31,11 @@ export const uploadFile = async (
     // 3. Максимальный размер (10 MB) — Multer уже проверяет через limits
     if (req.file.size > MAX_FILE_SIZE) {
       return next(new BadRequestError('Размер файла не должен превышать 10MB'));
+    }
+
+    const mime = req.file.mimetype.toLowerCase();
+    if (!ACCEPTED_MIME_TYPES.has(mime)) {
+      return next(new BadRequestError('Недопустимый тип файла'));
     }
     
     try {
