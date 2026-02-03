@@ -102,10 +102,7 @@ export const uploadFile = async (
       console.log('file.originalname:', file.originalname);  // Оригинальное имя
       console.log('Ответ fileName:', fileName);                  // Что пойдёт в ответ
 
-    return res.status(constants.HTTP_STATUS_CREATED).send({
-      fileName,
-      originalName: file.originalname,
-    });
+    return res.status(constants.HTTP_STATUS_CREATED).send({ fileName });
   } catch (error) {
     return next(error);
   }
