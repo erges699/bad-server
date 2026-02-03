@@ -6,6 +6,7 @@ import express, { json, urlencoded } from 'express';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import mongoose from 'mongoose';
+import fs from 'fs';
 import path from 'path';
 import { DB_ADDRESS, ORIGIN_ALLOW } from './config';
 import errorHandler from './middlewares/error-handler';
@@ -14,9 +15,23 @@ import routes from './routes';
 
 const { PORT = 3000 } = process.env;
 const app = express();
+const tempDir = path.join(__dirname, 'public', process.env.UPLOAD_PATH_TEMP || 'temp');
+if (!fs.existsSync(tempDir)) {
+  fs.mkdirSync(tempDir, { recursive: true });
+  console.log(`Папка создана: ${tempDir}`);
+}
 
 // Безопасность HTTP-заголовков
-app.use(helmet());
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      imgSrc: ["'self'", "http://localhost:3000", "data:"],
+    }
+  }
+}))
+
+app.set('trust proxy', 1)
 
 // Rate limiting (защита от DDoS)
 app.use(
@@ -33,6 +48,13 @@ app.use(cors({
   origin: ORIGIN_ALLOW,
   credentials: true,
 }));
+
+app.use('/images', (_req, res, next) => {
+  res.setHeader('Access-Control-Allow-Origin', 'http://localhost:5173');
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+  next();
+});
 
 app.use(serveStatic(path.join(__dirname, 'public')));
 
