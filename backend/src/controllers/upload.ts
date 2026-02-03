@@ -2,9 +2,9 @@
 import { NextFunction, Request, Response } from 'express';
 import { constants } from 'http2';
 import BadRequestError from '../errors/bad-request-error';
-import { lookup } from 'mime';
+// import { lookup } from 'mime';
 
-
+/*
 // Сигнатуры изображений (в HEX)
 const IMAGE_SIGNATURES = {
   png: [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A],
@@ -41,48 +41,55 @@ const checkImageSignature = (buffer: Buffer, mimeType: string): boolean => {
   }
   return true;
 };
-
+*/
 // Константы размеров
 const MIN_FILE_SIZE = 2048; // 2 KB
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
 
+const ACCEPTED_MIME_TYPES = [
+  'image/png',
+  'image/jpg',
+  'image/jpeg',
+  'image/gif',
+  'image/svg+xml'
+];
+
+const isFilenameSafe = (filename: string): boolean => {
+  const unsafeChars = /[<>:"/\\|?*]|^(?:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$/i
+  return !unsafeChars.test(filename)
+}
 
 export const uploadFile = async (
   req: Request,
   res: Response,
   next: NextFunction
 ) => {
-  if (!req.file) {
+  const file = req.file;
+
+  if (!file) {
     return next(new BadRequestError('Файл не загружен'));
   }
-
-  const file = req.file;
 
   // 1. Проверка MIME-типа
   if (!file.mimetype) {
     return next(new BadRequestError('Не указан MIME-тип файла'));
   }
 
-  const ACCEPTED_MIME_TYPES = [
-    'image/png',
-    'image/jpg',
-    'image/jpeg',
-    'image/gif',
-    'image/svg+xml'
-  ];
-
   if (!ACCEPTED_MIME_TYPES.includes(file.mimetype)) {
     return next(new BadRequestError('Недопустимый тип файла'));
   }
 
-  // 2. Проверка размера
+  if (!isFilenameSafe(file.originalname)) {
+      throw new BadRequestError('Недопустимое имя файла')
+  }
+
   if (file.size < MIN_FILE_SIZE) {
     return next(new BadRequestError('Размер файла должен быть больше 2KB'));
   }
   if (file.size > MAX_FILE_SIZE) {
     return next(new BadRequestError('Размер файла не должен превышать 10MB'));
   }
-
+/*
   // 3. Проверка сигнатуры файла (чтобы убедиться, что это реально изображение)
   if (!file.buffer) {
     return next(new BadRequestError('Не удалось прочитать содержимое файла'));
@@ -91,9 +98,9 @@ export const uploadFile = async (
   if (!checkImageSignature(file.buffer, file.mimetype)) {
     return next(new BadRequestError('Файл не является корректным изображением'));
   }
-
+*/
   try {
-    // Формируем путь к файлу
+
     const fileName = process.env.UPLOAD_PATH_TEMP
       ? `/${process.env.UPLOAD_PATH_TEMP}/${file.filename}`
       : `/${file.filename}`;
